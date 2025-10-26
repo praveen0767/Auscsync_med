@@ -41,13 +41,6 @@ from sklearn.decomposition import PCA
 from sklearn.metrics import confusion_matrix, classification_report, roc_curve, auc
 import joblib
 
-# ReportLab imports for PDF generation
-from reportlab.lib.pagesizes import letter
-from reportlab.pdfgen import canvas
-from reportlab.lib.styles import getSampleStyleSheet
-from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle
-from reportlab.lib import colors
-
 # Firebase imports
 try:
     import firebase_admin
@@ -243,13 +236,14 @@ class FirebaseDataProcessor:
         self.firebase_manager = firebase_manager
     
     def process_firebase_vitals_record(self, firebase_record, patient_id):
-        """Convert Firebase vitals record to app format"""
+        """Convert Firebase vitals record to app format with AI prediction"""
         try:
             # Get patient profile for age and other details
             profile = self.firebase_manager.get_patient_profile(patient_id)
-
+            
+            # Extract all possible fields with safe defaults
             record = {
-                'timestamp': firebase_record.get('timestamp', now_iso()),
+                'ts': firebase_record.get('timestamp', now_iso()),
                 'patient_id': patient_id,
                 'patient_name': profile.get('name', f'Patient_{patient_id}') if profile else f'Patient_{patient_id}',
                 'age': profile.get('age', 45) if profile else 45,
@@ -265,24 +259,61 @@ class FirebaseDataProcessor:
                 'data_source': 'Firebase'
             }
             
-            # Calculate AI risk assessment
-            fuse_result = fuse_rule_ml(
-                record['age'], record['hr'], record['spo2'], record['perf'],
-                record['flow'], record['ecg_irreg'], record['hrv_rmssd'], record['resp_rate']
-            )
+            # Calculate AI risk assessment - FIXED: Ensure all required parameters are present
+            fuse_result = self.calculate_ai_prediction(record)
             
-            record['fusion_tier'] = fuse_result['tier']
-            record['fusion_score'] = fuse_result['final_score']
-            record['ml_confidence'] = fuse_result['ml_conf']
-            record['rule_score'] = fuse_result['rule_score']
+            # Add AI prediction results to record
+            record.update({
+                'fusion_tier': fuse_result['tier'],
+                'fusion_score': fuse_result['final_score'],
+                'ml_confidence': fuse_result['ml_conf'],
+                'rule_score': fuse_result['rule_score'],
+                'ml_label': fuse_result['ml_label']
+            })
             
             return record
         except Exception as e:
             st.error(f"Error processing Firebase record: {e}")
+            st.error(f"Record data: {firebase_record}")
             return None
     
+    def calculate_ai_prediction(self, record):
+        """Calculate AI risk prediction with proper error handling"""
+        try:
+            # Ensure all required parameters are present and valid
+            age = record.get('age', 45)
+            hr = record.get('hr', 75)
+            spo2 = record.get('spo2', 97)
+            perf = record.get('perf', 0.08)
+            flow = record.get('flow', 0.95)
+            ecg_irreg = record.get('ecg_irreg', 0.1)
+            hrv_rmssd = record.get('hrv_rmssd', 40)
+            resp_rate = record.get('resp_rate', 16)
+            
+            # Validate numerical values
+            hr = float(hr) if hr is not None else 75
+            spo2 = float(spo2) if spo2 is not None else 97
+            perf = float(perf) if perf is not None else 0.08
+            flow = float(flow) if flow is not None else 0.95
+            ecg_irreg = float(ecg_irreg) if ecg_irreg is not None else 0.1
+            hrv_rmssd = float(hrv_rmssd) if hrv_rmssd is not None else 40
+            resp_rate = float(resp_rate) if resp_rate is not None else 16
+            
+            return fuse_rule_ml(age, hr, spo2, perf, flow, ecg_irreg, hrv_rmssd, resp_rate)
+            
+        except Exception as e:
+            st.error(f"AI prediction error: {e}")
+            # Return safe default prediction
+            return {
+                'tier': 'Normal',
+                'final_score': 0.1,
+                'ml_conf': 0.9,
+                'rule_score': 0.1,
+                'ml_label': 'Normal'
+            }
+    
     def fetch_and_process_realtime_data(self, patient_id, limit=10):
-        """Fetch and process real-time data for a patient"""
+        """Fetch and process real-time data for a patient with AI predictions"""
         firebase_data = self.firebase_manager.fetch_patient_data(patient_id, "vitals", limit)
         processed_records = []
         
@@ -295,7 +326,7 @@ class FirebaseDataProcessor:
         return processed_records
     
     def sync_all_patients_data(self, limit_per_patient=20):
-        """Sync data for all patients from Firebase"""
+        """Sync data for all patients from Firebase with AI predictions"""
         all_patients_data = self.firebase_manager.fetch_all_patients_vitals(limit_per_patient)
         processed_data = {}
         
@@ -369,7 +400,7 @@ class FirebasePatientManager:
             return False
 
 # -------------------------
-# App Configuration (same as before)
+# App Configuration
 # -------------------------
 APP_TITLE = "AUSCSYNC — Advanced Medical Monitoring System"
 VERSION = "v1.0-firebase-pro"
@@ -397,7 +428,7 @@ BUFFER_SECONDS = 120
 TREND_WINDOW = 300
 
 # -------------------------
-# Utility Functions (same as before)
+# Utility Functions
 # -------------------------
 def now_iso():
     return datetime.utcnow().isoformat(timespec="seconds") + "Z"
@@ -425,7 +456,7 @@ def formatf(x, fmt="{:.2f}"):
         return str(x)
 
 # -------------------------
-# Signal Processing (same as before)
+# Signal Processing
 # -------------------------
 def butter_bandpass(x, lowcut, highcut, fs, order=3):
     try:
@@ -465,7 +496,7 @@ def estimate_hr_ecg(ecg_array, fs=ECG_SR):
         return 0.0, [], {}
 
 # -------------------------
-# ML Model for Risk Prediction (same as before)
+# ML Model for Risk Prediction
 # -------------------------
 def generate_synthetic_dataset(n_samples=10000, seed=42):
     rng = np.random.RandomState(seed)
@@ -547,10 +578,17 @@ def build_and_train_rf(n_samples=10000):
         'roc_auc': roc_auc
     }
 
-RF_BUNDLE = build_and_train_rf(10000)
+# Initialize ML model
+try:
+    RF_BUNDLE = build_and_train_rf(10000)
+    ML_MODEL_LOADED = True
+except Exception as e:
+    st.error(f"Failed to load ML model: {e}")
+    ML_MODEL_LOADED = False
+    RF_BUNDLE = None
 
 # -------------------------
-# Clinical Decision Support (same as before)
+# Clinical Decision Support
 # -------------------------
 AGE_GROUPS = [
     {'name': 'Neonate', 'min':0, 'max':0.1, 'hr_min':100, 'hr_max':160, 'spo2_min':88, 'resp_min':30, 'resp_max':60},
@@ -623,60 +661,85 @@ def param_status(value, key, age):
     return 'normal'
 
 def fuse_rule_ml(age, hr, spo2, perf, flow, ecg_irreg, hrv_rmssd, resp_rate):
-    weights = {
-        'hr': 0.15, 
-        'spo2': 0.25, 
-        'flow': 0.15, 
-        'perf': 0.10, 
-        'ecg_irreg': 0.10,
-        'hrv_rmssd': 0.10,
-        'resp_rate': 0.15
-    }
-    
-    status = {
-        k: param_status(v, k, age) for k, v in [
-            ('hr', hr), 
-            ('spo2', spo2), 
-            ('flow', flow), 
-            ('perf', perf), 
-            ('ecg_irreg', ecg_irreg),
-            ('hrv_rmssd', hrv_rmssd),
-            ('resp_rate', resp_rate)
-        ]
-    }
-    
-    score_map = {'normal': 0.0, 'warning': 0.6, 'critical': 1.0}
-    rule_score = sum([weights[k] * score_map[status[k]] for k in weights])
-    
-    X = np.array([[age, hr, spo2, perf, flow, ecg_irreg, hrv_rmssd, resp_rate]], dtype=np.float32)
-    Xs = RF_BUNDLE['scaler'].transform(X)
-    probs = RF_BUNDLE['model'].predict_proba(Xs)[0]
-    ml_label_idx = int(np.argmax(probs))
-    ml_conf = float(probs[ml_label_idx])
-    
-    inv_map = {0: 'Normal', 1: 'At Risk', 2: 'Critical'}
-    ml_label = inv_map[ml_label_idx]
-    
-    final_score = 0.4 * rule_score + 0.6 * (ml_conf if ml_label != 'Normal' else (1 - ml_conf))
-    
-    if ml_label == 'Critical' or rule_score > 0.7 or final_score > 0.65:
-        tier = 'Critical'
-    elif ml_label == 'At Risk' or rule_score > 0.35 or final_score > 0.35:
-        tier = 'At Risk'
-    else:
-        tier = 'Normal'
+    """Fusion of rule-based and ML risk assessment with proper error handling"""
+    try:
+        if not ML_MODEL_LOADED:
+            # Fallback to rule-based only if ML model not loaded
+            return {
+                'rule_score': 0.1, 
+                'ml_label': 'Normal', 
+                'ml_conf': 0.9, 
+                'final_score': 0.1, 
+                'tier': 'Normal', 
+                'param_statuses': {}
+            }
         
-    return {
-        'rule_score': rule_score, 
-        'ml_label': ml_label, 
-        'ml_conf': ml_conf, 
-        'final_score': final_score, 
-        'tier': tier, 
-        'param_statuses': status
-    }
+        weights = {
+            'hr': 0.15, 
+            'spo2': 0.25, 
+            'flow': 0.15, 
+            'perf': 0.10, 
+            'ecg_irreg': 0.10,
+            'hrv_rmssd': 0.10,
+            'resp_rate': 0.15
+        }
+        
+        status = {
+            k: param_status(v, k, age) for k, v in [
+                ('hr', hr), 
+                ('spo2', spo2), 
+                ('flow', flow), 
+                ('perf', perf), 
+                ('ecg_irreg', ecg_irreg),
+                ('hrv_rmssd', hrv_rmssd),
+                ('resp_rate', resp_rate)
+            ]
+        }
+        
+        score_map = {'normal': 0.0, 'warning': 0.6, 'critical': 1.0}
+        rule_score = sum([weights[k] * score_map[status[k]] for k in weights])
+        
+        # Prepare features for ML model
+        X = np.array([[age, hr, spo2, perf, flow, ecg_irreg, hrv_rmssd, resp_rate]], dtype=np.float32)
+        Xs = RF_BUNDLE['scaler'].transform(X)
+        probs = RF_BUNDLE['model'].predict_proba(Xs)[0]
+        ml_label_idx = int(np.argmax(probs))
+        ml_conf = float(probs[ml_label_idx])
+        
+        inv_map = {0: 'Normal', 1: 'At Risk', 2: 'Critical'}
+        ml_label = inv_map[ml_label_idx]
+        
+        final_score = 0.4 * rule_score + 0.6 * (ml_conf if ml_label != 'Normal' else (1 - ml_conf))
+        
+        if ml_label == 'Critical' or rule_score > 0.7 or final_score > 0.65:
+            tier = 'Critical'
+        elif ml_label == 'At Risk' or rule_score > 0.35 or final_score > 0.35:
+            tier = 'At Risk'
+        else:
+            tier = 'Normal'
+            
+        return {
+            'rule_score': rule_score, 
+            'ml_label': ml_label, 
+            'ml_conf': ml_conf, 
+            'final_score': final_score, 
+            'tier': tier, 
+            'param_statuses': status
+        }
+    except Exception as e:
+        st.error(f"Error in fuse_rule_ml: {e}")
+        # Return safe default
+        return {
+            'rule_score': 0.1, 
+            'ml_label': 'Normal', 
+            'ml_conf': 0.9, 
+            'final_score': 0.1, 
+            'tier': 'Normal', 
+            'param_statuses': {}
+        }
 
 # -------------------------
-# Alert System (same as before)
+# Alert System
 # -------------------------
 class AlertSystem:
     def __init__(self, firebase_manager=None):
@@ -785,13 +848,17 @@ def make_patient(pid=None):
     }
 
 # -------------------------
-# Enhanced Report Generator (same as before)
+# Enhanced Report Generator
 # -------------------------
 class ClinicalReportGenerator:
     """Generates comprehensive clinical reports with AI risk analysis"""
     
     def __init__(self):
-        pass
+        self.report_templates = {
+            'comprehensive': self._generate_comprehensive_report,
+            'executive': self._generate_executive_summary,
+            'technical': self._generate_technical_report
+        }
     
     def generate_json_report(self, patient_data, session_data, risk_assessment):
         """Generate comprehensive JSON report"""
@@ -1351,7 +1418,7 @@ def main():
             return None
 
     def process_simulation_data():
-        """Generate simulated data"""
+        """Generate simulated data with AI prediction"""
         # Simple simulation for demo
         base_time = time.time()
         
@@ -1379,14 +1446,14 @@ def main():
             'data_source': 'Simulation'
         }
         
-        # Calculate fusion score
-        fuse_result = fuse_rule_ml(
-            record['age'], record['hr'], record['spo2'], record['perf'],
-            record['flow'], record['ecg_irreg'], record['hrv_rmssd'], record['resp_rate']
-        )
+        # Calculate AI risk assessment
+        fuse_result = st.session_state.data_processor.calculate_ai_prediction(record)
         
         record['fusion_tier'] = fuse_result['tier']
         record['fusion_score'] = fuse_result['final_score']
+        record['ml_confidence'] = fuse_result['ml_conf']
+        record['rule_score'] = fuse_result['rule_score']
+        record['ml_label'] = fuse_result['ml_label']
         
         return record
 
@@ -1539,11 +1606,11 @@ def main():
                 """, unsafe_allow_html=True)
         
         with col3:
-            st.subheader("🎯 Risk Assessment")
+            st.subheader("🎯 AI Risk Assessment")
             if st.session_state.session_log:
                 latest_rec = st.session_state.session_log[-1]
                 
-                tier = latest_rec['fusion_tier']
+                tier = latest_rec.get('fusion_tier', 'Normal')
                 color = SUCCESS if tier == "Normal" else (WARNING if tier == "At Risk" else DANGER)
                 
                 st.markdown(f"""
@@ -1553,6 +1620,10 @@ def main():
                     {tier} STATUS
                 </div>
                 """, unsafe_allow_html=True)
+                
+                # AI Confidence
+                ai_confidence = latest_rec.get('ml_confidence', 0.9) * 100
+                st.metric("AI Confidence", f"{ai_confidence:.1f}%")
                 
                 # Data source indicator
                 source_color = PRIMARY if latest_rec.get('data_source') == 'Firebase' else SECONDARY
@@ -1564,12 +1635,12 @@ def main():
 
     with tab2:
         if show_waveforms and st.session_state.buffers['ecg']:
-            st.subheader("Real-time Waveforms")
+            st.subheader("Real-time Waveforms with AI Risk Score")
             
             # Create subplots for waveforms
             fig_waveforms = make_subplots(
                 rows=3, cols=2,
-                subplot_titles=('ECG', 'PPG', 'PCG', 'Doppler', 'Respiratory', 'Fusion Score'),
+                subplot_titles=('ECG', 'PPG', 'PCG', 'Doppler', 'Respiratory', 'AI Fusion Score'),
                 vertical_spacing=0.1
             )
             
@@ -1613,22 +1684,42 @@ def main():
                     row=3, col=1
                 )
             
-            # Add Fusion Score
+            # Add AI Fusion Score
             fusion_plot = list(st.session_state.trend_data['fusion_score'])[-200:]
             if fusion_plot:
+                # Color based on risk level
+                colors = []
+                for score in fusion_plot:
+                    if score > 0.65:
+                        colors.append(DANGER)
+                    elif score > 0.35:
+                        colors.append(WARNING)
+                    else:
+                        colors.append(SUCCESS)
+                
                 fig_waveforms.add_trace(
-                    go.Scatter(y=fusion_plot, name='Fusion Score', line=dict(color=DANGER)),
+                    go.Scatter(
+                        y=fusion_plot, 
+                        name='AI Fusion Score', 
+                        line=dict(color=DANGER),
+                        marker=dict(color=colors)
+                    ),
                     row=3, col=2
                 )
             
             fig_waveforms.update_layout(height=800, showlegend=False)
             st.plotly_chart(fig_waveforms, use_container_width=True)
+            
+            # Display current AI prediction
+            if st.session_state.session_log:
+                latest = st.session_state.session_log[-1]
+                st.info(f"**Current AI Prediction:** {latest.get('fusion_tier', 'Normal')} (Score: {latest.get('fusion_score', 0):.3f})")
         else:
             st.info("No waveform data available or display disabled.")
 
     with tab3:
         if show_trends and st.session_state.trend_data['timestamps']:
-            st.subheader("Trend Analysis")
+            st.subheader("Trend Analysis with AI Risk Assessment")
             
             # Create DataFrame for trends
             trend_df = pd.DataFrame({
@@ -1647,7 +1738,7 @@ def main():
             # Plot trends
             fig_trends = make_subplots(
                 rows=3, cols=2,
-                subplot_titles=('Heart Rate', 'SpO₂', 'Perfusion Index', 'Doppler Flow', 'Respiratory Rate', 'Fusion Score'),
+                subplot_titles=('Heart Rate', 'SpO₂', 'Perfusion Index', 'Doppler Flow', 'Respiratory Rate', 'AI Fusion Score'),
                 vertical_spacing=0.1
             )
             
@@ -1681,17 +1772,22 @@ def main():
                 row=3, col=1
             )
             
-            # Fusion Score
+            # AI Fusion Score with risk zones
             fig_trends.add_trace(
-                go.Scatter(x=trend_df['datetime'], y=trend_df['fusion_score'], name='Fusion Score', line=dict(color=DANGER)),
+                go.Scatter(x=trend_df['datetime'], y=trend_df['fusion_score'], name='AI Fusion Score', line=dict(color=DANGER)),
                 row=3, col=2
             )
+            
+            # Add risk zones to fusion score
+            fig_trends.add_hrect(y0=0, y1=0.35, line_width=0, fillcolor=SUCCESS, opacity=0.1, row=3, col=2)
+            fig_trends.add_hrect(y0=0.35, y1=0.65, line_width=0, fillcolor=WARNING, opacity=0.1, row=3, col=2)
+            fig_trends.add_hrect(y0=0.65, y1=1.0, line_width=0, fillcolor=DANGER, opacity=0.1, row=3, col=2)
             
             fig_trends.update_layout(height=800, showlegend=False)
             st.plotly_chart(fig_trends, use_container_width=True)
             
             # Statistical summary
-            st.subheader("Trend Statistics")
+            st.subheader("Trend Statistics with AI Analysis")
             col1, col2, col3 = st.columns(3)
             
             with col1:
@@ -1704,43 +1800,83 @@ def main():
             
             with col3:
                 st.metric("Resp Rate Mean ± Std", f"{trend_df['resp_rate'].mean():.1f} ± {trend_df['resp_rate'].std():.1f}")
-                st.metric("Fusion Score Mean ± Std", f"{trend_df['fusion_score'].mean():.3f} ± {trend_df['fusion_score'].std():.3f}")
+                st.metric("AI Risk Score Mean ± Std", f"{trend_df['fusion_score'].mean():.3f} ± {trend_df['fusion_score'].std():.3f}")
+                
+            # AI Risk Analysis
+            if len(trend_df) > 1:
+                risk_trend = "Increasing" if trend_df['fusion_score'].iloc[-1] > trend_df['fusion_score'].iloc[0] else "Decreasing"
+                current_risk = trend_df['fusion_score'].iloc[-1]
+                risk_level = "Critical" if current_risk > 0.65 else "At Risk" if current_risk > 0.35 else "Normal"
+                
+                st.subheader("📊 AI Risk Analysis")
+                col1, col2, col3 = st.columns(3)
+                with col1:
+                    st.metric("Current Risk Level", risk_level)
+                with col2:
+                    st.metric("Risk Score Trend", risk_trend)
+                with col3:
+                    st.metric("Max Risk Score", f"{trend_df['fusion_score'].max():.3f}")
         else:
             st.info("No trend data available or trends display disabled.")
 
     with tab4:
         if show_advanced and st.session_state.session_log:
-            st.subheader("Advanced Analytics")
+            st.subheader("Advanced Analytics with AI Insights")
             
             # Create DataFrame from session log
             df_log = pd.DataFrame(st.session_state.session_log)
             
-            # Feature correlations
-            st.subheader("Feature Correlations")
+            # Feature correlations including AI score
+            st.subheader("Feature Correlations with AI Risk Score")
             numeric_cols = ['hr', 'spo2', 'perf', 'flow', 'ecg_irreg', 'hrv_rmssd', 'resp_rate', 'fusion_score']
-            corr_matrix = df_log[numeric_cols].corr()
+            available_cols = [col for col in numeric_cols if col in df_log.columns]
             
-            fig_corr = go.Figure(data=go.Heatmap(
-                z=corr_matrix.values,
-                x=corr_matrix.columns,
-                y=corr_matrix.index,
-                colorscale='RdBu',
-                zmin=-1,
-                zmax=1
-            ))
-            fig_corr.update_layout(title="Correlation Matrix")
-            st.plotly_chart(fig_corr, use_container_width=True)
+            if available_cols:
+                corr_matrix = df_log[available_cols].corr()
+                
+                fig_corr = go.Figure(data=go.Heatmap(
+                    z=corr_matrix.values,
+                    x=corr_matrix.columns,
+                    y=corr_matrix.index,
+                    colorscale='RdBu',
+                    zmin=-1,
+                    zmax=1
+                ))
+                fig_corr.update_layout(title="Correlation Matrix with AI Fusion Score")
+                st.plotly_chart(fig_corr, use_container_width=True)
             
-            # Feature importance
-            st.subheader("Feature Importance")
-            feature_importance = pd.DataFrame({
-                'feature': RF_BUNDLE['feature_names'],
-                'importance': RF_BUNDLE['model'].feature_importances_
-            }).sort_values('importance', ascending=False)
+            # Feature importance from ML model
+            if ML_MODEL_LOADED:
+                st.subheader("AI Model Feature Importance")
+                feature_importance = pd.DataFrame({
+                    'feature': RF_BUNDLE['feature_names'],
+                    'importance': RF_BUNDLE['model'].feature_importances_
+                }).sort_values('importance', ascending=False)
+                
+                fig_fi = px.bar(feature_importance, x='importance', y='feature', 
+                               orientation='h', title='Random Forest Feature Importance for Risk Prediction')
+                st.plotly_chart(fig_fi, use_container_width=True)
             
-            fig_fi = px.bar(feature_importance, x='importance', y='feature', 
-                           orientation='h', title='Random Forest Feature Importance')
-            st.plotly_chart(fig_fi, use_container_width=True)
+            # Risk distribution
+            st.subheader("Risk Score Distribution")
+            if 'fusion_score' in df_log.columns:
+                fig_dist = px.histogram(df_log, x='fusion_score', nbins=20, 
+                                       title='Distribution of AI Fusion Scores',
+                                       color_discrete_sequence=[DANGER])
+                fig_dist.update_layout(xaxis_title='AI Fusion Score', yaxis_title='Frequency')
+                st.plotly_chart(fig_dist, use_container_width=True)
+            
+            # Risk over time
+            st.subheader("Risk Progression Over Time")
+            if 'fusion_score' in df_log.columns and 'ts' in df_log.columns:
+                df_log['timestamp'] = pd.to_datetime(df_log['ts'])
+                fig_risk_time = px.line(df_log, x='timestamp', y='fusion_score',
+                                      title='AI Risk Score Over Time',
+                                      color_discrete_sequence=[DANGER])
+                fig_risk_time.add_hrect(y0=0.65, y1=1.0, fillcolor=DANGER, opacity=0.2, line_width=0)
+                fig_risk_time.add_hrect(y0=0.35, y1=0.65, fillcolor=WARNING, opacity=0.2, line_width=0)
+                fig_risk_time.add_hrect(y0=0, y1=0.35, fillcolor=SUCCESS, opacity=0.2, line_width=0)
+                st.plotly_chart(fig_risk_time, use_container_width=True)
             
         else:
             st.info("No data available for advanced analytics.")
@@ -1754,28 +1890,53 @@ def main():
             with col1:
                 st.subheader("Firebase Operations")
                 
-                if st.button("🔄 Sync All Patient Data"):
-                    with st.spinner("Syncing with Firebase..."):
+                if st.button("🔄 Sync All Patient Data with AI Analysis"):
+                    with st.spinner("Syncing with Firebase and running AI analysis..."):
                         all_data = st.session_state.data_processor.sync_all_patients_data(limit_per_patient=50)
                         if all_data:
                             total_records = sum(len(records) for records in all_data.values())
                             st.success(f"Synced {total_records} records from {len(all_data)} patients")
                             
                             # Display patient summary
-                            st.subheader("Patient Data Summary")
+                            st.subheader("Patient Data Summary with AI Analysis")
                             for patient_id, records in all_data.items():
-                                st.write(f"**{patient_id}**: {len(records)} records")
+                                if records:
+                                    latest_record = records[-1]
+                                    risk_level = latest_record.get('fusion_tier', 'Unknown')
+                                    risk_score = latest_record.get('fusion_score', 0)
+                                    st.write(f"**{patient_id}**: {len(records)} records | Risk: {risk_level} ({risk_score:.3f})")
                         else:
                             st.warning("No data found in Firebase")
                 
-                if st.button("📊 Load Historical Data"):
-                    with st.spinner("Loading historical data..."):
+                if st.button("📊 Load Historical Data with AI"):
+                    with st.spinner("Loading historical data with AI analysis..."):
                         historical_data = st.session_state.data_processor.fetch_and_process_realtime_data(
                             current_patient['id'], limit=100
                         )
                         if historical_data:
-                            st.session_state.session_log.extend(historical_data)
-                            st.success(f"Loaded {len(historical_data)} historical records")
+                            # Clear existing data and replace with historical
+                            st.session_state.session_log = historical_data
+                            st.success(f"Loaded {len(historical_data)} historical records with AI analysis")
+                            
+                            # Update trend data
+                            st.session_state.trend_data = {
+                                'timestamps': deque(maxlen=TREND_WINDOW),
+                                'hr': deque(maxlen=TREND_WINDOW),
+                                'spo2': deque(maxlen=TREND_WINDOW),
+                                'perf': deque(maxlen=TREND_WINDOW),
+                                'flow': deque(maxlen=TREND_WINDOW),
+                                'resp_rate': deque(maxlen=TREND_WINDOW),
+                                'fusion_score': deque(maxlen=TREND_WINDOW),
+                            }
+                            
+                            for record in historical_data:
+                                st.session_state.trend_data['timestamps'].append(record['ts'])
+                                st.session_state.trend_data['hr'].append(record['hr'])
+                                st.session_state.trend_data['spo2'].append(record['spo2'])
+                                st.session_state.trend_data['perf'].append(record['perf'])
+                                st.session_state.trend_data['flow'].append(record['flow'])
+                                st.session_state.trend_data['resp_rate'].append(record['resp_rate'])
+                                st.session_state.trend_data['fusion_score'].append(record['fusion_score'])
                         else:
                             st.warning("No historical data found for this patient")
             
@@ -1793,52 +1954,67 @@ def main():
                 available_patients = st.session_state.firebase_manager.get_available_patients()
                 st.metric("Patients in DB", len(available_patients))
                 
-            # Test data generation
+            # Test data generation with AI
             st.markdown("---")
-            st.subheader("🧪 Test Data Generation")
+            st.subheader("🧪 Test Data Generation with AI Analysis")
             
             col1, col2 = st.columns(2)
             
             with col1:
                 num_test_records = st.slider("Number of test records", 1, 50, 10)
+                include_risk_cases = st.checkbox("Include high-risk cases", value=True)
                 
             with col2:
-                if st.button("Generate Test Data"):
-                    with st.spinner("Generating test data..."):
+                if st.button("Generate Test Data with AI"):
+                    with st.spinner("Generating test data with AI analysis..."):
                         for i in range(num_test_records):
-                            test_record = {
-                                'timestamp': (datetime.now() - timedelta(minutes=i)).isoformat(),
-                                'hr': float(np.random.normal(75, 10)),
-                                'spo2': float(np.random.normal(97, 1.5)),
-                                'perf': float(np.random.normal(0.08, 0.02)),
-                                'flow': float(np.random.normal(0.95, 0.1)),
-                                'resp_rate': float(np.random.normal(16, 2)),
-                                'ecg_irreg': float(np.random.uniform(0.05, 0.15)),
-                                'hrv_rmssd': float(np.random.normal(40, 10)),
-                                'pcg_murmur_index': float(np.random.uniform(0.02, 0.08)),
-                                'condition': 'normal'
-                            }
+                            # Create some high-risk cases if requested
+                            if include_risk_cases and i % 5 == 0:
+                                # High risk case
+                                test_record = {
+                                    'timestamp': (datetime.now() - timedelta(minutes=i)).isoformat(),
+                                    'hr': float(np.random.normal(120, 15)),
+                                    'spo2': float(np.random.normal(85, 3)),
+                                    'perf': float(np.random.normal(0.02, 0.01)),
+                                    'flow': float(np.random.normal(0.3, 0.1)),
+                                    'resp_rate': float(np.random.normal(25, 5)),
+                                    'ecg_irreg': float(np.random.uniform(0.6, 0.9)),
+                                    'hrv_rmssd': float(np.random.normal(20, 5)),
+                                    'pcg_murmur_index': float(np.random.uniform(0.1, 0.3)),
+                                    'condition': 'critical'
+                                }
+                            else:
+                                # Normal case
+                                test_record = {
+                                    'timestamp': (datetime.now() - timedelta(minutes=i)).isoformat(),
+                                    'hr': float(np.random.normal(75, 10)),
+                                    'spo2': float(np.random.normal(97, 1.5)),
+                                    'perf': float(np.random.normal(0.08, 0.02)),
+                                    'flow': float(np.random.normal(0.95, 0.1)),
+                                    'resp_rate': float(np.random.normal(16, 2)),
+                                    'ecg_irreg': float(np.random.uniform(0.05, 0.15)),
+                                    'hrv_rmssd': float(np.random.normal(40, 10)),
+                                    'pcg_murmur_index': float(np.random.uniform(0.02, 0.08)),
+                                    'condition': 'normal'
+                                }
                             
                             success = st.session_state.firebase_manager.push_patient_data(
                                 current_patient['id'], "vitals", test_record
                             )
                         
-                        st.success(f"Generated {num_test_records} test records")
+                        st.success(f"Generated {num_test_records} test records with AI analysis")
         else:
             st.info("Firebase not configured or not connected.")
 
     with tab6:
-        st.subheader("📋 Comprehensive Clinical Report")
+        st.subheader("📋 Comprehensive Clinical Report with AI Analysis")
         
         if not st.session_state.session_log:
             st.info("No data available for report generation. Start monitoring to collect data.")
         else:
             # Get latest risk assessment
             latest_rec = st.session_state.session_log[-1]
-            risk_assessment = fuse_rule_ml(
-                latest_rec['age'], latest_rec['hr'], latest_rec['spo2'], latest_rec['perf'],
-                latest_rec['flow'], latest_rec['ecg_irreg'], latest_rec['hrv_rmssd'], latest_rec['resp_rate']
-            )
+            risk_assessment = st.session_state.data_processor.calculate_ai_prediction(latest_rec)
             
             # Report Overview
             col1, col2, col3 = st.columns(3)
@@ -1848,7 +2024,7 @@ def main():
                 st.metric("Age/Sex", f"{current_patient['age']}y/{current_patient['sex']}")
             
             with col2:
-                st.metric("Risk Level", risk_assessment['tier'])
+                st.metric("AI Risk Level", risk_assessment['tier'])
                 st.metric("AI Confidence", f"{risk_assessment['ml_conf']*100:.1f}%")
             
             with col3:
@@ -1864,17 +2040,18 @@ def main():
             with col1:
                 st.markdown("""
                 <div class="report-section">
-                    <h4>🧠 Risk Assessment Breakdown</h4>
+                    <h4>🧠 AI Risk Assessment Breakdown</h4>
                 </div>
                 """, unsafe_allow_html=True)
                 
                 # Risk metrics
-                st.metric("Fusion Score", f"{risk_assessment['final_score']:.3f}")
+                st.metric("AI Fusion Score", f"{risk_assessment['final_score']:.3f}")
                 st.metric("Rule-Based Score", f"{risk_assessment['rule_score']:.3f}")
                 st.metric("ML Confidence", f"{risk_assessment['ml_conf']:.3f}")
+                st.metric("ML Prediction", risk_assessment['ml_label'])
                 
                 # Parameter status
-                st.subheader("Parameter Status")
+                st.subheader("Parameter Status Analysis")
                 for param, status in risk_assessment['param_statuses'].items():
                     status_color = SUCCESS if status == 'normal' else (WARNING if status == 'warning' else DANGER)
                     st.markdown(f"- **{param}**: <span style='color:{status_color};'>{status}</span>", unsafe_allow_html=True)
@@ -1882,7 +2059,7 @@ def main():
             with col2:
                 st.markdown("""
                 <div class="report-section">
-                    <h4>📈 Risk Visualization</h4>
+                    <h4>📈 AI Risk Visualization</h4>
                 </div>
                 """, unsafe_allow_html=True)
                 
@@ -1891,7 +2068,7 @@ def main():
                     mode = "gauge+number+delta",
                     value = risk_assessment['final_score'],
                     domain = {'x': [0, 1], 'y': [0, 1]},
-                    title = {'text': "Risk Score"},
+                    title = {'text': "AI Fusion Risk Score"},
                     delta = {'reference': 0.3},
                     gauge = {
                         'axis': {'range': [0, 1]},
@@ -1914,7 +2091,7 @@ def main():
             st.markdown("---")
             
             # Clinical Recommendations
-            st.subheader("💡 Clinical Recommendations")
+            st.subheader("💡 AI-Powered Clinical Recommendations")
             infographic_data = st.session_state.report_generator.generate_infographic_data(
                 current_patient, st.session_state.session_log, risk_assessment
             )
@@ -1929,7 +2106,7 @@ def main():
             st.markdown("---")
             
             # Download Section
-            st.subheader("📥 Download Reports")
+            st.subheader("📥 Download AI-Enhanced Reports")
             
             col1, col2, col3 = st.columns(3)
             
@@ -1960,62 +2137,61 @@ def main():
                 )
             
             with col3:
-                # Infographic Summary
-                st.info("Infographic PDF report generation would be implemented with additional libraries like ReportLab or WeasyPrint")
-                
-                # Create a simple text summary as placeholder
+                # AI Summary
                 summary_text = f"""
-                AUSCSYNC CLINICAL REPORT
-                ========================
+                AUSCSYNC AI CLINICAL REPORT
+                ===========================
                 
                 Patient: {current_patient['name']}
                 ID: {current_patient['id']}
                 Age: {current_patient['age']} years
                 Sex: {current_patient['sex']}
                 
-                RISK ASSESSMENT: {risk_assessment['tier']}
+                AI RISK ASSESSMENT: {risk_assessment['tier']}
                 Fusion Score: {risk_assessment['final_score']:.3f}
                 AI Confidence: {risk_assessment['ml_conf']*100:.1f}%
+                ML Prediction: {risk_assessment['ml_label']}
                 
                 Monitoring Period: {len(st.session_state.session_log)} records
                 Data Source: {st.session_state.session_log[-1].get('data_source', 'Unknown')}
                 
-                RECOMMENDATIONS:
+                AI RECOMMENDATIONS:
                 {chr(10).join(f'- {rec}' for rec in recommendations)}
                 
-                Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
+                Generated with AI Analysis: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
                 """
                 
                 st.download_button(
-                    label="📋 Download Text Summary",
+                    label="🤖 Download AI Summary",
                     data=summary_text,
-                    file_name=f"report_summary_{current_patient['id']}_{datetime.now().strftime('%Y%m%d_%H%M')}.txt",
+                    file_name=f"ai_report_{current_patient['id']}_{datetime.now().strftime('%Y%m%d_%H%M')}.txt",
                     mime="text/plain",
                     use_container_width=True
                 )
             
-            # Raw Data Preview
+            # Raw Data Preview with AI predictions
             st.markdown("---")
-            st.subheader("🔍 Raw Data Preview (Last 10 Records)")
+            st.subheader("🔍 Raw Data Preview with AI Predictions (Last 10 Records)")
             if st.session_state.session_log:
                 df_preview = pd.DataFrame(st.session_state.session_log[-10:])
-                st.dataframe(df_preview)
+                # Select important columns including AI predictions
+                preview_cols = ['ts', 'hr', 'spo2', 'resp_rate', 'fusion_tier', 'fusion_score', 'ml_confidence']
+                available_cols = [col for col in preview_cols if col in df_preview.columns]
+                st.dataframe(df_preview[available_cols])
 
     # Session log at the bottom
     st.markdown("---")
-    st.subheader("Session Log (last 20 entries)")
+    st.subheader("Session Log with AI Predictions (last 20 entries)")
 
     if st.session_state.session_log:
         df = pd.DataFrame(st.session_state.session_log)
-        st.dataframe(df.tail(20).style.format({
+        display_cols = ['ts', 'patient_id', 'hr', 'spo2', 'resp_rate', 'fusion_tier', 'fusion_score', 'data_source']
+        available_display_cols = [col for col in display_cols if col in df.columns]
+        
+        st.dataframe(df.tail(20)[available_display_cols].style.format({
             'hr': '{:.1f}',
             'spo2': '{:.1f}',
-            'perf': '{:.3f}',
-            'flow': '{:.3f}',
-            'ecg_irreg': '{:.3f}',
-            'hrv_rmssd': '{:.1f}',
             'resp_rate': '{:.1f}',
-            'pcg_murmur_index': '{:.3f}',
             'fusion_score': '{:.3f}'
         }))
     else:

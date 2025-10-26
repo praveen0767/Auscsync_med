@@ -1,0 +1,827 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>AUSCSYNC — Integrative Health Dashboard</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <!-- Chart.js CDN -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <!-- Google font -->
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700&display=swap" rel="stylesheet">
+  <style>
+    :root{
+      --bg:#0B1226; --card:#0f1724; --muted:#9AA6B2; --accent:#00BFA6; --accent2:#FF6B6B;
+      --glass: rgba(255,255,255,0.04); --glass-2: rgba(255,255,255,0.02);
+      --radius:14px;
+      font-family: "Inter",system-ui,Arial,Helvetica,sans-serif;
+      color-scheme: dark;
+    }
+    *{box-sizing:border-box}
+    body{
+      margin:0; background: linear-gradient(180deg,#071026 0%, #071827 60%); color:#e6eef6;
+      min-height:100vh; padding:24px;
+    }
+    .app-shell{
+      max-width:1200px; margin:0 auto;
+      display:grid; gap:18px;
+    }
+    header.topbar{
+      display:flex; align-items:center; gap:16px; padding:16px; border-radius:12px;
+      background:linear-gradient(180deg, rgba(255,255,255,0.03), rgba(255,255,255,0.02));
+      box-shadow: 0 6px 24px rgba(3,6,14,0.6);
+      position:sticky; top:18px; z-index:10;
+    }
+    .brand{
+      display:flex; align-items:center; gap:12px; margin-right:12px;
+    }
+    .logo{
+      width:48px; height:48px; border-radius:10px; background:linear-gradient(135deg,var(--accent),#05a089);
+      display:flex; align-items:center; justify-content:center; font-weight:700; color:#052423;
+      box-shadow: 0 6px 18px rgba(0,191,166,0.14);
+    }
+    h1{font-size:18px;margin:0}
+    .nav{display:flex; gap:8px; margin-left:12px}
+    .nav button{background:transparent;border:none;color:var(--muted); padding:8px 10px;border-radius:10px}
+    .nav button.active{color:#fff; background:var(--glass)}
+    .top-actions{margin-left:auto; display:flex; gap:10px; align-items:center}
+    .card{background:var(--card); border-radius:var(--radius); padding:16px; box-shadow: 0 8px 30px rgba(2,6,12,0.6)}
+    .grid{display:grid; gap:16px}
+    .grid.cols-3{grid-template-columns: repeat(3, 1fr)}
+    .grid.cols-2{grid-template-columns: 2fr 1fr}
+    .small{font-size:13px;color:var(--muted)}
+    .kpi{display:flex; gap:12px; align-items:center; justify-content:space-between}
+    .kpi .value{font-size:20px; font-weight:700}
+    .controls{display:flex; gap:8px; align-items:center; flex-wrap:wrap}
+    input, select, textarea{padding:10px;border-radius:10px;border:1px solid rgba(255,255,255,0.02);background:var(--glass-2); color:inherit;width:100%}
+    label.small{font-size:12px;color:var(--muted);display:block;margin-bottom:6px}
+    .cols{display:grid;grid-template-columns: 1fr 1fr; gap:12px}
+    .btn{padding:10px 14px;border-radius:10px;border:none;cursor:pointer;background:var(--accent); color:#03221d;font-weight:600}
+    .btn.warn{background:var(--accent2); color:white}
+    .btn.ghost{background:transparent;border:1px solid rgba(255,255,255,0.04); color:var(--muted)}
+    .muted{color:var(--muted)}
+    .table{width:100%; border-collapse:collapse}
+    .table th, .table td{padding:8px;text-align:left;border-bottom:1px solid rgba(255,255,255,0.02)}
+    footer{margin-top:20px; color:var(--muted); font-size:13px; text-align:center}
+    .badge{padding:6px 8px;border-radius:8px;background:rgba(255,255,255,0.03);font-size:12px}
+    .alert{padding:10px;border-radius:10px;background:rgba(255,100,80,0.06); color:#ffd9d4}
+    .row{display:flex; gap:12px; align-items:center}
+    @media (max-width:900px){
+      .grid.cols-2{grid-template-columns:1fr}
+      .grid.cols-3{grid-template-columns:1fr}
+      .cols{grid-template-columns:1fr}
+    }
+  </style>
+</head>
+<body>
+  <div class="app-shell">
+    <header class="topbar card">
+      <div class="brand">
+        <div class="logo">A</div>
+        <div>
+          <h1>AUSCSYNC</h1>
+          <div class="small">Integrative Preventive Health Companion</div>
+        </div>
+      </div>
+
+      <nav class="nav" id="mainNav">
+        <button data-page="home" class="active">Home</button>
+        <button data-page="dashboard">Dashboard</button>
+        <button data-page="record">New Recording</button>
+        <button data-page="nakul">Nakul (Virtual Doctor)</button>
+        <button data-page="vedikha">Vedikha (ICD Mapper)</button>
+        <button data-page="settings">Settings</button>
+      </nav>
+
+      <div class="top-actions">
+        <div class="small muted" id="connectionStatus">Offline (mock)</div>
+        <button class="btn ghost" id="toggleMockBtn">Use Real Backend</button>
+      </div>
+    </header>
+
+    <!-- PAGES -->
+    <main id="contentArea">
+
+      <!-- HOME -->
+      <section id="home" class="page card">
+        <div style="display:flex;align-items:center;justify-content:space-between;gap:12px">
+          <div>
+            <h2>Welcome to AUSCSYNC</h2>
+            <p class="small muted">Combine genomics, continuous biosensing, TRADMED↔ICD mapping and voice-first guidance — demo-ready.</p>
+          </div>
+          <div style="text-align:right">
+            <div class="small muted">Quick actions</div>
+            <div style="display:flex;gap:8px;margin-top:8px">
+              <button class="btn" onclick="navigateTo('record')">Start Recording</button>
+              <button class="btn ghost" onclick="navigateTo('dashboard')">Open Dashboard</button>
+            </div>
+          </div>
+        </div>
+
+        <div style="margin-top:18px" class="grid cols-3">
+          <div class="card">
+            <div class="kpi"><div><div class="small muted">Top Risk</div><div class="value" id="kpiRisk">—</div></div><div class="badge" id="kpiRiskBadge">—</div></div>
+            <div class="small muted" style="margin-top:8px">From genomic + sensor fusion</div>
+          </div>
+
+          <div class="card">
+            <div class="kpi"><div><div class="small muted">Latest HR</div><div class="value" id="kpiHR">—</div></div><div class="small muted">bpm</div></div>
+            <div class="small muted" style="margin-top:8px">Live from patch or simulation</div>
+          </div>
+
+          <div class="card">
+            <div class="kpi"><div><div class="small muted">Latest SpO₂</div><div class="value" id="kpiSpO2">—</div></div><div class="small muted">%</div></div>
+            <div class="small muted" style="margin-top:8px">A real-time estimate</div>
+          </div>
+        </div>
+      </section>
+
+      <!-- DASHBOARD -->
+      <section id="dashboard" class="page card" style="display:none">
+        <div class="grid cols-2">
+          <div class="card">
+            <h3>Live Vitals</h3>
+            <canvas id="ecgChart" height="120"></canvas>
+            <canvas id="ppgChart" height="80" style="margin-top:8px"></canvas>
+            <canvas id="spo2Chart" height="80" style="margin-top:8px"></canvas>
+            <div class="row" style="margin-top:10px">
+              <div class="small muted">Mode:</div>
+              <div id="liveMode" class="badge">SIMULATE</div>
+            </div>
+          </div>
+          <div class="card">
+            <h3>Alerts & Timeline</h3>
+            <div id="alertsList" style="max-height:380px; overflow:auto; margin-top:8px"></div>
+            <div style="margin-top:12px" class="row">
+              <button class="btn" id="exportFHIR">Export last as FHIR</button>
+              <button class="btn ghost" id="clearAlerts">Clear</button>
+            </div>
+          </div>
+        </div>
+
+        <div style="margin-top:16px" class="grid cols-3">
+          <div class="card">
+            <h4>Risk Panel</h4>
+            <div id="riskPanel" style="margin-top:8px">No risk loaded.</div>
+          </div>
+
+          <div class="card">
+            <h4>Prevention Plan</h4>
+            <div id="planPanel" style="margin-top:8px">No plan yet. Start a recording to trigger suggestions.</div>
+          </div>
+
+          <div class="card">
+            <h4>Patient Data</h4>
+            <table class="table" id="patientsTable">
+              <thead><tr><th>ID</th><th>Name</th><th>Age</th><th>BMI</th></tr></thead>
+              <tbody></tbody>
+            </table>
+            <div style="margin-top:8px"><button class="btn ghost" onclick="loadPatients()">Refresh</button></div>
+          </div>
+        </div>
+      </section>
+
+      <!-- New Recording -->
+      <section id="record" class="page card" style="display:none">
+        <h3>New Recording — patient & settings</h3>
+        <div class="grid" style="margin-top:8px">
+          <div class="card">
+            <h4>Patient Information</h4>
+            <div class="cols">
+              <div>
+                <label class="small">Patient ID (leave blank to create new)</label>
+                <input id="patientId" placeholder="Optional: P123456" />
+              </div>
+              <div>
+                <label class="small">Name</label>
+                <input id="patientName" placeholder="Full name" />
+              </div>
+            </div>
+
+            <div class="cols" style="margin-top:10px">
+              <div>
+                <label class="small">Age</label>
+                <input type="number" id="patientAge" />
+              </div>
+              <div>
+                <label class="small">Sex</label>
+                <select id="patientSex">
+                  <option value="M">Male</option>
+                  <option value="F">Female</option>
+                  <option value="O">Other</option>
+                </select>
+              </div>
+            </div>
+
+            <div class="cols" style="margin-top:10px">
+              <div>
+                <label class="small">Height (cm)</label>
+                <input type="number" id="patientHeight" placeholder="cm" oninput="updateBMI()" />
+              </div>
+              <div>
+                <label class="small">Weight (kg)</label>
+                <input type="number" id="patientWeight" placeholder="kg" oninput="updateBMI()" />
+              </div>
+            </div>
+
+            <div style="margin-top:10px">
+              <label class="small">BMI</label>
+              <input id="patientBMI" readonly />
+            </div>
+
+            <div style="margin-top:10px">
+              <label class="small">Medical history / Notes</label>
+              <textarea id="patientHistory" rows="3"></textarea>
+            </div>
+          </div>
+
+          <div class="card">
+            <h4>Recording Settings</h4>
+            <label class="small">Mode</label>
+            <select id="recordMode">
+              <option value="simulate">Simulate (client-side)</option>
+              <option value="serial">Serial (HC-05 / COM port)</option>
+              <option value="bridge">Bridge (laptop -> serial -> backend)</option>
+            </select>
+
+            <div id="serialSettings" style="margin-top:10px; display:none">
+              <label class="small">Serial port</label>
+              <input id="serialPort" value="COM11" />
+              <label class="small" style="margin-top:6px">Baud</label>
+              <input id="serialBaud" value="115200" />
+            </div>
+
+            <div style="margin-top:10px" class="row">
+              <div>
+                <label class="small">Record seconds</label>
+                <input type="number" id="recordSeconds" value="40" />
+              </div>
+              <div>
+                <label class="small">Service (backend)</label>
+                <input id="backendUrl" value="http://localhost:8000" />
+              </div>
+            </div>
+
+            <div style="margin-top:12px" class="row">
+              <button class="btn" id="btnStart">Start Recording</button>
+              <button class="btn warn" id="btnStop" disabled>Stop</button>
+              <button class="btn ghost" id="btnTestSim">Quick Simulate 20s</button>
+            </div>
+
+            <div style="margin-top:12px">
+              <div class="small muted">Status</div>
+              <div id="recStatus" class="badge">Idle</div>
+            </div>
+
+            <div style="margin-top:12px">
+              <div class="small muted">Last Session</div>
+              <pre id="lastSession" style="max-height:120px;overflow:auto;background:#071026;padding:8px;border-radius:8px">No sessions yet.</pre>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Nakul -->
+      <section id="nakul" class="page card" style="display:none">
+        <h3>Nakul — Virtual Doctor (voice-enabled)</h3>
+        <div class="grid cols-2" style="margin-top:8px">
+          <div class="card">
+            <div id="chatBox" style="height:360px; overflow:auto; padding:8px; background:linear-gradient(180deg,rgba(255,255,255,0.01),transparent); border-radius:8px"></div>
+            <div style="margin-top:8px; display:flex; gap:8px">
+              <input id="userQuery" placeholder="Ask Nakul..." />
+              <button class="btn" id="speakBtn">Ask (text)</button>
+              <button class="btn ghost" id="voiceBtn">🎤 Voice</button>
+            </div>
+          </div>
+
+          <div class="card">
+            <h4>Context</h4>
+            <div id="nakulContext">No context loaded.</div>
+            <div style="margin-top:8px">
+              <button class="btn ghost" onclick="clearChat()">Clear</button>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Vedikha -->
+      <section id="vedikha" class="page card" style="display:none">
+        <h3>Vedikha — TRADMED ↔ ICD Mapper</h3>
+        <div class="grid cols-2" style="margin-top:8px">
+          <div class="card">
+            <label class="small">Paste TRADMED text / term</label>
+            <textarea id="tradText" rows="6" placeholder="e.g., 'Ama, indigestion, heavy abdomen, irregular bowel'"></textarea>
+            <div style="margin-top:8px" class="row">
+              <button class="btn" id="mapBtn">Map to ICD-11</button>
+              <button class="btn ghost" id="loadSampleMapping">Load sample</button>
+            </div>
+            <div id="mappingResults" style="margin-top:10px"></div>
+          </div>
+
+          <div class="card">
+            <h4>Audit Trail</h4>
+            <div id="mappingAudit" style="max-height:420px; overflow:auto"></div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Settings -->
+      <section id="settings" class="page card" style="display:none">
+        <h3>Settings</h3>
+        <div class="grid cols-2">
+          <div class="card">
+            <label class="small">Service Base URL</label>
+            <input id="svcBase" value="http://localhost:8000" />
+            <label class="small" style="margin-top:8px">Use mock (no backend)</label>
+            <select id="useMock">
+              <option value="1">Yes — Mock mode</option>
+              <option value="0">No — Use real backend</option>
+            </select>
+            <div style="margin-top:12px"><button class="btn" onclick="applySettings()">Apply</button></div>
+          </div>
+          <div class="card">
+            <h4>Device</h4>
+            <div class="small muted">This demo does not expose the Firebase key in the browser. Set SERVICE_ACCOUNT in backend only.</div>
+            <div style="margin-top:8px"><button class="btn ghost" onclick="alert('For security, do not place service account JSON in frontend. Backend only.')">Security note</button></div>
+          </div>
+        </div>
+      </section>
+
+    </main>
+
+    <footer>
+      AUSCSYNC • Demo UI • © <span id="year"></span>
+    </footer>
+  </div>
+
+  <!-- JS: behavior & charts -->
+  <script>
+    // small utils & state
+    const state = {
+      page: 'home',
+      usingBackend: false,
+      ws: null,
+      simInterval: null,
+      sessionId: null,
+      ecgBuffer: [],
+      ppgBuffer: [],
+      spo2Buffer: [],
+      timeBuffer: [],
+      maxPoints: 500,
+      alerts: [],
+      patients: [],
+    };
+    document.getElementById('year').innerText = new Date().getFullYear();
+
+    // NAV
+    document.querySelectorAll('#mainNav button').forEach(btn=>{
+      btn.addEventListener('click', ()=> {
+        document.querySelectorAll('#mainNav button').forEach(b=>b.classList.remove('active'));
+        btn.classList.add('active');
+        navigateTo(btn.dataset.page);
+      });
+    });
+    function navigateTo(page){
+      state.page = page;
+      document.querySelectorAll('.page').forEach(p => p.style.display = (p.id===page)?'block':'none');
+      // page specific init
+      if(page==='dashboard'){ renderDashboard(); }
+      if(page==='record'){ renderRecord(); }
+      if(page==='nakul'){ renderNakul(); }
+    }
+
+    // SETTINGS
+    document.getElementById('toggleMockBtn').addEventListener('click', ()=>{
+      state.usingBackend = !state.usingBackend;
+      document.getElementById('connectionStatus').innerText = state.usingBackend? 'Backend (live)' : 'Offline (mock)';
+      document.getElementById('toggleMockBtn').innerText = state.usingBackend ? 'Use Mock Mode' : 'Use Real Backend';
+    });
+
+    function applySettings(){
+      const base = document.getElementById('svcBase').value.trim();
+      document.getElementById('backendUrl').value = base;
+      alert('Settings applied (demo). Use backend URL: '+base);
+    }
+
+    // BMI calc
+    function updateBMI(){
+      const h = parseFloat(document.getElementById('patientHeight').value) || 0;
+      const w = parseFloat(document.getElementById('patientWeight').value) || 0;
+      if(h>0 && w>0){
+        const bmi = (w / ((h/100)*(h/100))).toFixed(2);
+        document.getElementById('patientBMI').value = bmi;
+      } else document.getElementById('patientBMI').value = '';
+    }
+
+    // CHARTS: Chart.js setup
+    let ecgChart, ppgChart, spo2Chart;
+    function setupCharts(){
+      const ctx1 = document.getElementById('ecgChart').getContext('2d');
+      const ctx2 = document.getElementById('ppgChart').getContext('2d');
+      const ctx3 = document.getElementById('spo2Chart').getContext('2d');
+
+      const sharedOpts = {animation:false, responsive:true, maintainAspectRatio:false, plugins:{legend:{display:false}}};
+
+      ecgChart = new Chart(ctx1, {
+        type:'line', data: {labels:[], datasets:[{label:'ECG', data:[], fill:false, pointRadius:0, borderWidth:1}]},
+        options: {...sharedOpts, scales:{x:{display:false}, y:{display:true}}}
+      });
+      ppgChart = new Chart(ctx2, {
+        type:'line', data: {labels:[], datasets:[{label:'PPG', data:[], fill:false, pointRadius:0, borderWidth:1}]},
+        options: {...sharedOpts, scales:{x:{display:false}, y:{display:true}}}
+      });
+      spo2Chart = new Chart(ctx3, {
+        type:'line', data: {labels:[], datasets:[{label:'SpO2', data:[], fill:false, pointRadius:0, borderWidth:1}]},
+        options: {...sharedOpts, scales:{x:{display:false}, y:{min:80, max:100}}}
+      });
+    }
+    setupCharts();
+
+    // push new sample (and keep window)
+    function pushSample(ts, ecg, ppg, spo2){
+      state.timeBuffer.push(ts);
+      state.ecgBuffer.push(ecg);
+      state.ppgBuffer.push(ppg);
+      state.spo2Buffer.push(spo2);
+      // limit
+      if(state.timeBuffer.length>state.maxPoints){
+        state.timeBuffer.shift(); state.ecgBuffer.shift(); state.ppgBuffer.shift(); state.spo2Buffer.shift();
+      }
+      // update KPI
+      document.getElementById('kpiHR').innerText = computeApproxHRFromECG(state.ecgBuffer) ? Math.round(computeApproxHRFromECG(state.ecgBuffer)) : '—';
+      document.getElementById('kpiSpO2').innerText = spo2? Math.round(spo2):'—';
+
+      // charts update
+      ecgChart.data.labels = state.timeBuffer.map(t=> '');
+      ecgChart.data.datasets[0].data = state.ecgBuffer;
+      ecgChart.update('none');
+
+      ppgChart.data.labels = state.timeBuffer.map(t=> '');
+      ppgChart.data.datasets[0].data = state.ppgBuffer;
+      ppgChart.update('none');
+
+      spo2Chart.data.labels = state.timeBuffer.map(t=> '');
+      spo2Chart.data.datasets[0].data = state.spo2Buffer;
+      spo2Chart.update('none');
+    }
+
+    // very simple HR estimate: count zero-crossings / peaks approximation
+    function computeApproxHRFromECG(buffer){
+      if(!buffer || buffer.length<50) return null;
+      // naive: count peaks above mean+std*0.5 in window
+      const arr = buffer.slice(-200);
+      const mean = arr.reduce((a,b)=>a+b,0)/arr.length;
+      const sd = Math.sqrt(arr.map(v=>Math.pow(v-mean,2)).reduce((a,b)=>a+b,0)/(arr.length-1) || 1);
+      let peaks=0;
+      for(let i=1;i<arr.length-1;i++){
+        if(arr[i] > mean + 0.6*sd && arr[i]>arr[i-1] && arr[i]>arr[i+1]) peaks++;
+      }
+      // estimate bpm assuming sample rate 40Hz
+      const windowSec = arr.length/40.0;
+      if(peaks<1) return null;
+      const bpm = (peaks / windowSec) * 60.0;
+      return bpm;
+    }
+
+    // SIMULATOR: generate ECG-ish waveform, PPG, spo2
+    function startSimulation(intervalMs=200){
+      // clear buffers
+      state.ecgBuffer=[]; state.ppgBuffer=[]; state.spo2Buffer=[]; state.timeBuffer=[];
+      if(state.simInterval) clearInterval(state.simInterval);
+      let t=0;
+      state.simInterval = setInterval(()=>{
+        t+=intervalMs/1000.0;
+        // ECG baseline: sine + peaks every ~0.8s
+        const ecg = 0.02*Math.sin(2*Math.PI*1*t) + (Math.random()*0.02) + (Math.random()>0.95? 0.6:0); // occasional large R
+        const ppg = 0.2 + 0.05*Math.sin(2*Math.PI*1.2*t) + Math.random()*0.02;
+        const spo2 = 96 + Math.round(Math.random()*3-1);
+        pushSample(new Date().toISOString(), ecg, ppg, spo2);
+      }, intervalMs);
+      document.getElementById('recStatus').innerText = 'Simulating';
+      document.getElementById('liveMode').innerText = 'SIMULATE';
+    }
+    function stopSimulation(){
+      if(state.simInterval){ clearInterval(state.simInterval); state.simInterval=null; }
+      document.getElementById('recStatus').innerText = 'Idle';
+    }
+
+    // START / STOP handlers
+    document.getElementById('btnStart').addEventListener('click', async ()=>{
+      const mode = document.getElementById('recordMode').value;
+      const patientId = document.getElementById('patientId').value.trim();
+      const name = document.getElementById('patientName').value.trim();
+      const age = parseInt(document.getElementById('patientAge').value)||0;
+      const sex = document.getElementById('patientSex').value;
+      const height = parseFloat(document.getElementById('patientHeight').value)||0;
+      const weight = parseFloat(document.getElementById('patientWeight').value)||0;
+      const bmi = document.getElementById('patientBMI').value;
+      const history = document.getElementById('patientHistory').value;
+      const seconds = parseInt(document.getElementById('recordSeconds').value)||40;
+      const backend = document.getElementById('backendUrl').value || 'http://localhost:8000';
+
+      // validation
+      if(!patientId && !name){ alert('Provide existing patient id or enter new patient name.'); return; }
+
+      // if using backend mode and not mock, call backend to create patient or start recording
+      if(!state.usingBackend && mode!=='simulate'){
+        // not using backend but requested serial mode -> warn & fallback to simulate
+        if(!confirm('You are in MOCK mode. Serial/bridge will be simulated. Continue?')) return;
+      }
+
+      document.getElementById('btnStart').disabled=true;
+      document.getElementById('btnStop').disabled=false;
+
+      // create patient in mock
+      let createdPid = patientId || ('P' + Math.floor(Date.now()/1000));
+      if(!patientId && !state.usingBackend){
+        // create mock patient entry and add to table
+        const profile = {name, age, sex, height_cm:height, weight_kg:weight, bmi, medical_history:history};
+        addMockPatient(createdPid, profile);
+      }
+
+      // If simulate requested, start client-side sim
+      if(mode==='simulate'){
+        startSimulation(200);
+        state.sessionId = 'SIM_'+Date.now();
+        document.getElementById('lastSession').innerText = JSON.stringify({sessionId: state.sessionId, mode:'simulate', patientId: createdPid, started:new Date().toISOString()}, null, 2);
+        appendAlert('info','Simulation started for '+createdPid);
+        return;
+      }
+
+      // else attempt to call backend start endpoint
+      const payload = {
+        patient_id: createdPid,
+        patient_profile: {name, age, sex, height_cm:height, weight_kg:weight, bmi, medical_history:history},
+        mode: mode,
+        port: document.getElementById('serialPort').value,
+        baud: parseInt(document.getElementById('serialBaud').value)||115200,
+        record_seconds: seconds
+      };
+      try{
+        const resp = await fetch( (state.usingBackend ? backend : '/api') + '/start_recording', {
+          method:'POST',
+          headers: {'Content-Type':'application/json'},
+          body: JSON.stringify(payload)
+        });
+        if(!resp.ok) throw new Error('Backend returned '+resp.status);
+        const data = await resp.json();
+        state.sessionId = data.session_id || ('S'+Date.now());
+        document.getElementById('lastSession').innerText = JSON.stringify(data, null,2);
+        appendAlert('info', 'Recording started (session '+state.sessionId+')');
+        // If backend returns ws_url, connect to it
+        if(data.ws_url){
+          openWS(data.ws_url);
+        }
+      }catch(err){
+        console.error(err);
+        appendAlert('error','Failed to start backend recording — falling back to simulation. Error: '+err.message);
+        startSimulation(200);
+      }
+    });
+
+    document.getElementById('btnStop').addEventListener('click', async ()=>{
+      // stop sim or call backend stop
+      stopSimulation();
+      document.getElementById('btnStart').disabled=false;
+      document.getElementById('btnStop').disabled=true;
+      if(state.ws){ try{ state.ws.close() }catch(e){} state.ws=null; }
+      if(state.sessionId){
+        appendAlert('info','Session stopped: '+state.sessionId);
+        // optionally call backend to stop
+        try{
+          const backend = document.getElementById('backendUrl').value || 'http://localhost:8000';
+          if(state.usingBackend){
+            await fetch(backend + '/stop_recording', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({session_id: state.sessionId})});
+          }
+        }catch(e){ console.warn('stop backend failed', e) }
+        state.sessionId = null;
+      }
+    });
+
+    document.getElementById('btnTestSim').addEventListener('click', ()=> {
+      // one-off quick 20s sim
+      startSimulation(200);
+      setTimeout(()=>{ stopSimulation(); appendAlert('info','Quick simulate finished'); }, 20000);
+    });
+
+    // Alerts utilities
+    function appendAlert(level, text){
+      const at = {ts: new Date().toISOString(), level, text};
+      state.alerts.unshift(at);
+      refreshAlerts();
+    }
+    function refreshAlerts(){
+      const node = document.getElementById('alertsList');
+      node.innerHTML = '';
+      for(let a of state.alerts.slice(0,50)){
+        const el = document.createElement('div');
+        el.className = 'card';
+        el.style.marginBottom='8px';
+        el.innerHTML = `<div style="display:flex;justify-content:space-between"><div><strong>${a.level.toUpperCase()}</strong></div><div class="small muted">${a.ts}</div></div><div style="margin-top:6px">${a.text}</div>`;
+        node.appendChild(el);
+      }
+    }
+    document.getElementById('clearAlerts').addEventListener('click', ()=>{ state.alerts=[]; refreshAlerts(); });
+
+    // PATIENTS: mock loader
+    function addMockPatient(pid, profile){
+      state.patients.push({id:pid, profile});
+      renderPatients();
+    }
+    function loadPatients(){
+      // If backend mode, fetch real patients. Else show mocks
+      if(state.usingBackend){
+        fetch(document.getElementById('backendUrl').value + '/api/patients').then(r=>r.json()).then(data=>{
+          state.patients = data || [];
+          renderPatients();
+        }).catch(e=>{ appendAlert('error','Failed to load patients: '+e.message) });
+        return;
+      }
+      // demo mock patients
+      if(state.patients.length===0){
+        addMockPatient('P170000', {name:'Jane Doe', age:29, bmi:22.5});
+        addMockPatient('P170001', {name:'Ravi Kumar', age:45, bmi:27.1});
+      } else renderPatients();
+    }
+    function renderPatients(){
+      const tbody = document.querySelector('#patientsTable tbody');
+      tbody.innerHTML = '';
+      for(const p of state.patients){
+        const tr = document.createElement('tr');
+        tr.innerHTML = `<td>${p.id}</td><td>${p.profile.name}</td><td>${p.profile.age}</td><td>${p.profile.bmi||''}</td>`;
+        tbody.appendChild(tr);
+      }
+    }
+
+    // WEBSOCKET: receive streaming packets from backend (if provided)
+    function openWS(url){
+      try{
+        if(state.ws){ state.ws.close(); state.ws=null; }
+        state.ws = new WebSocket(url);
+        state.ws.onopen = ()=>{ appendAlert('info','WS connected'); document.getElementById('connectionStatus').innerText = 'WS connected'; }
+        state.ws.onmessage = (ev)=> { try{ const pkt = JSON.parse(ev.data); handleIncomingPacket(pkt); }catch(e){ console.warn(e); } };
+        state.ws.onclose = ()=> { appendAlert('info','WS closed'); document.getElementById('connectionStatus').innerText = 'Offline (mock)'; }
+        state.ws.onerror = (err)=> { appendAlert('error','WS error'); console.error(err); }
+      }catch(e){ appendAlert('error','Failed to open WS: '+e.message); }
+    }
+
+    function handleIncomingPacket(pkt){
+      // expected keys: ts, ecg, ppg, spo2, hr, hrv, top_risks
+      const ts = pkt.ts || new Date().toISOString();
+      const ecg = Number(pkt.ecg) || 0;
+      const ppg = Number(pkt.ppg) || 0;
+      const spo2 = Number(pkt.spo2) || 0;
+      pushSample(ts, ecg, ppg, spo2);
+
+      if(pkt.top_risks) {
+        updateRiskPanel(pkt.top_risks);
+      }
+      // alert generation: simple demo
+      if(spo2 && spo2 < 92) appendAlert('warning', `Low SpO₂ detected: ${spo2}%`);
+    }
+
+    // RISK PANEL & PLAN
+    function updateRiskPanel(risks){
+      const node = document.getElementById('riskPanel');
+      node.innerHTML = '';
+      for(const r of risks){
+        const el = document.createElement('div');
+        el.style.marginBottom='8px';
+        el.innerHTML = `<div style="display:flex;justify-content:space-between"><div><strong>${r.disease}</strong></div><div class="small muted">${Math.round((r.prob||0)*100)}%</div></div><div class="small muted">${r.note||''}</div>`;
+        node.appendChild(el);
+      }
+      // generate simple plan
+      const plan = document.getElementById('planPanel');
+      plan.innerHTML = `<div><strong>Suggested Plan</strong><div class="small muted">Auto-generated</div><p style="margin-top:8px">Increase moderate activity to 30 min/day, reduce refined carbs, follow-up test: fasting glucose in 2 weeks. If symptoms worsen, consult clinician.</p></div>`;
+      document.getElementById('kpiRisk').innerText = risks[0].disease || '—';
+      document.getElementById('kpiRiskBadge').innerText = Math.round((risks[0].prob||0)*100)+'%';
+    }
+
+    // Nakul: simple TTS & chat simulation
+    function renderNakul(){
+      document.getElementById('chatBox').innerHTML = '';
+      document.getElementById('nakulContext').innerText = 'Recent alerts: ' + state.alerts.length;
+    }
+    document.getElementById('speakBtn').addEventListener('click', ()=>{
+      const q = document.getElementById('userQuery').value.trim();
+      if(!q) return;
+      addChat('user', q);
+      // simulated response using plan/context
+      setTimeout(()=>{
+        const answer = "I recommend: rest, monitor vitals, and see clinician if values stay abnormal. I flagged a potential issue based on recent vitals.";
+        addChat('bot', answer);
+        speakText(answer);
+      }, 700);
+    });
+    document.getElementById('voiceBtn').addEventListener('click', ()=>{
+      // Use Web Speech API if available
+      if(!('webkitSpeechRecognition' in window) && !('SpeechRecognition' in window)){
+        alert('Voice input not available in this browser. Use text input.');
+        return;
+      }
+      const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+      const rec = new SpeechRecognition();
+      rec.lang = 'en-IN';
+      rec.interimResults = false;
+      rec.onresult = (ev)=> {
+        const txt = ev.results[0][0].transcript;
+        document.getElementById('userQuery').value = txt;
+        document.getElementById('speakBtn').click();
+      };
+      rec.onerror = (e)=> console.error(e);
+      rec.start();
+    });
+    function addChat(who, text){
+      const box = document.getElementById('chatBox');
+      const el = document.createElement('div');
+      el.style.marginBottom='8px';
+      if(who==='user') el.innerHTML = `<div style="text-align:right"><div style="display:inline-block;background:rgba(0,191,166,0.12);padding:8px;border-radius:8px">${text}</div></div>`;
+      else el.innerHTML = `<div style="text-align:left"><div style="display:inline-block;background:rgba(255,255,255,0.02);padding:8px;border-radius:8px">${text}</div></div>`;
+      box.appendChild(el);
+      box.scrollTop = box.scrollHeight;
+    }
+    function speakText(text){
+      if('speechSynthesis' in window){
+        const u = new SpeechSynthesisUtterance(text);
+        u.lang='en-US';
+        window.speechSynthesis.speak(u);
+      }
+    }
+    function clearChat(){ document.getElementById('chatBox').innerHTML=''; }
+
+    // Vedikha mapping demo
+    document.getElementById('mapBtn').addEventListener('click', ()=>{
+      const txt = document.getElementById('tradText').value.trim();
+      if(!txt){ alert('Enter TRADMED text'); return; }
+      // in demo, use sample mappings
+      const candidates = [
+        {code:'5A1Z.0', label:'Functional dyspepsia', score:0.73, explanation:'Ama + postprandial fullness -> dyspepsia (rule match)'},
+        {code:'1A23.4', label:'Gastritis', score:0.48, explanation:'terms match "acid", "pain"'},
+      ];
+      renderMappingResults(candidates);
+    });
+    function renderMappingResults(cands){
+      const node = document.getElementById('mappingResults');
+      node.innerHTML = '';
+      for(const c of cands){
+        const el = document.createElement('div');
+        el.className='card';
+        el.style.marginBottom='8px';
+        el.innerHTML = `<div style="display:flex;justify-content:space-between"><div><strong>${c.label}</strong><div class="small muted">${c.code}</div></div><div style="width:110px;text-align:right"><div style="font-weight:700">${Math.round(c.score*100)}%</div><div class="small muted">confidence</div></div></div><div style="margin-top:8px">${c.explanation}</div><div style="margin-top:8px"><button class="btn" onclick='exportFHIR("${c.code}","${c.label}")'>Export FHIR</button></div>`;
+        node.appendChild(el);
+      }
+      // append to audit
+      const audit = document.getElementById('mappingAudit');
+      const ael = document.createElement('div');
+      ael.className='small muted';
+      ael.style.marginBottom='8px';
+      ael.innerText = `${new Date().toISOString()} — mapped "${document.getElementById('tradText').value.slice(0,80)}" -> ${cands[0].label} (${cands[0].code}) conf ${Math.round(cands[0].score*100)}%`;
+      audit.prepend(ael);
+    }
+
+    // export FHIR (simple JSON download)
+    function exportFHIR(code,label){
+      const cond = {
+        resourceType: "Condition",
+        clinicalStatus: {coding:[{system:"http://terminology.hl7.org/CodeSystem/condition-clinical", code:"active"}]},
+        code: {coding:[{system:"http://id.who.int/icd/release/11/mms", code:code, display: label}]},
+        recordedDate: new Date().toISOString()
+      };
+      const blob = new Blob([JSON.stringify(cond, null, 2)], {type:'application/json'});
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url; a.download = `Condition_${code}.json`; a.click();
+      URL.revokeObjectURL(url);
+    }
+
+    // export last recorded summary as FHIR (button on dashboard)
+    document.getElementById('exportFHIR').addEventListener('click', ()=>{
+      const last = {id: state.sessionId || 'SIM', hr: document.getElementById('kpiHR').innerText, spo2: document.getElementById('kpiSpO2').innerText};
+      const resource = {
+        resourceType: "Observation",
+        status: "final",
+        code: {text: "AUSCSYNC vitals snapshot"},
+        effectiveDateTime: new Date().toISOString(),
+        valueQuantity: {value: parseFloat(last.hr)||null, unit:"bpm"}
+      };
+      const blob = new Blob([JSON.stringify(resource, null,2)], {type:'application/json'});
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a'); a.href=url; a.download='observation.json'; a.click(); URL.revokeObjectURL(url);
+    });
+
+    // initial demo load
+    loadPatients();
+    refreshAlerts();
+    navigateTo('home');
+
+    // small helper to show dashboard
+    function renderDashboard(){
+      // ensure charts are resized
+      ecgChart.resize();
+      ppgChart.resize();
+      spo2Chart.resize();
+    }
+    function renderRecord(){ /* no-op */ }
+
+  </script>
+</body>
+</html>
